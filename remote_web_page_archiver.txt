@@ -1,0 +1,158 @@
+<?php
+
+
+function url_get_contents ($Url) {
+    if (!function_exists('curl_init')){ 
+        die('CURL is not installed!');
+    }
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $Url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $output = curl_exec($ch);
+    curl_close($ch);
+    return $output;
+}
+
+function array_scan($string_to_search, $array_of_searchables){
+	foreach ($array_of_searchables as $searchable){
+		if ( stripos ( $string_to_search , $searchable ) ){
+			return true;
+		}
+	}
+	return false;
+}
+
+function fetch_data($data){
+	global $url_prefix;
+	$dURL = $url_prefix . '?' . http_build_query($data);
+	$html = url_get_contents($dURL);
+
+	$html_length = substr_count( $html, "\n" );
+	
+	$appeal_or_review_found = array_scan( $html, array('appeal', 'appel', 'review', 'rÃ©vision') );
+	
+	if ($data['batch_action_csv_metadata'] != 0){
+		//this means that we are getting csv metadata
+		return $html;
+	}
+
+	if ($appeal_or_review_found == true){ // && ( $html_length > 27 || $data['batch_action_csv_metadata'] != 0 ) ){
+		return $html;
+	}
+	
+	return false;
+}
+
+function store_html($data, $html){
+	global $batch_directory;
+	
+	if ($html == ''){
+		//return false;
+	}
+	
+	$folder_path = $batch_directory . 'dc_id_' . $data['dc_id'];
+	$file_name = str_replace( '&', '_', http_build_query($data)) . '.htm';
+	$file_path = $folder_path . '/' . $file_name;
+	//'/dc_id_' .$i.'_'. $data['batch_action_skip_styles'] . $data['batch_action_csv_metadata'] . $data['batch_action_skip_appeal'] . $data['batch_action_skip_review'] . '.htm' ;
+	
+	if(!file_exists(dirname($file_path))){
+		mkdir(dirname($file_path), 0777, true);
+	}
+
+	if ( file_put_contents($file_path, $html) ){
+		return $file_path;
+	}
+	return false;
+}
+
+//?dc_id=1489&lang=eng&batch_action_skip_appeal=1&batch_action_skip_styles=0
+
+if (isset($_REQUEST['dc_id_start'])){
+
+	$url_prefix = 'http://example.com';
+	$batch_directory = dirname(__FILE__) . '/batch_directory/';
+	
+	$dc_id_start = intval($_REQUEST['dc_id_start']);
+	$dc_id_end = intval($_REQUEST['dc_id_end']);
+	
+	$batch_action_skip_styles = 0;
+	if (isset($_REQUEST['batch_action_skip_styles'])){
+		$batch_action_skip_styles = intval($_REQUEST['batch_action_skip_styles']);
+	}
+	
+	$batch_action_csv_metadata = 0;
+	if (isset($_REQUEST['batch_action_csv_metadata'])){
+		$batch_action_csv_metadata = intval($_REQUEST['batch_action_csv_metadata']);
+	}
+	
+	$batch_action_skip_appeal = 0;
+	if (isset($_REQUEST['batch_action_skip_appeal'])){
+		$batch_action_skip_appeal = intval($_REQUEST['batch_action_skip_appeal']);
+	}
+	
+	$batch_action_skip_review = 0;
+	if (isset($_REQUEST['batch_action_skip_review'])){
+		$batch_action_skip_review = intval($_REQUEST['batch_action_skip_review']);
+	}
+	
+	$lang = 'eng';
+	if (isset($_REQUEST['lang']) && $_REQUEST['lang'] == 'fra'){
+		$lang = 'fra';
+	}
+	
+	$do_all = 0;
+	if (isset($_REQUEST['do_all']) && $_REQUEST['do_all'] == 1){
+		$do_all = 1;
+	}
+
+	echo "<pre>";
+	
+	for ( $i=$dc_id_start; $i<$dc_id_end; $i++){
+
+		$data = array(
+			'lang'=>$lang,
+			'dc_id'=> $i,
+			'batch_action_skip_styles' => $batch_action_skip_styles,
+			'batch_action_csv_metadata' => $batch_action_csv_metadata,
+			'batch_action_skip_appeal' => $batch_action_skip_appeal,
+			'batch_action_skip_review' => $batch_action_skip_review
+		);
+
+
+		if ( $return_data = fetch_data($data) ){
+			if ( $file_path = store_html($data, $return_data) ){
+				$url = str_replace( $batch_directory, 'batch_directory/', $file_path);
+				echo "\n".'A valid result was successfully saved using the following file: ' . "\n <a href='" . $url . "' />$url</a>";
+			} else {
+				echo "\n".'A valid result was not returned by the following file_path: ' . "\n" . $file_path;
+			}
+		} else {
+			echo "\n".'A valid result was not returned by the following query data: ' . "\n";
+			echo str_replace( "\n", ' ', print_r($data, true) );
+			echo '$return_data: ' . $return_data;
+		}
+	}
+	echo "</pre>";
+} else {
+
+?>
+<html>
+<head><title>Exporter</title></head>
+<body>
+<form method="get" action="">
+<label>dc_id_start <input type="text" name = "dc_id_start" value="1"/></label><br/>
+<label>dc_id_end <input type="text" name = "dc_id_end" value="1511"/></label><br/>
+<br/>
+<label>batch_action_skip_styles <input type="text" name = "batch_action_skip_styles" value="0"/></label><br/>
+<label>batch_action_csv_metadata <input type="text" name = "batch_action_csv_metadata" value="0"/></label><br/>
+<label>batch_action_skip_appeal <input type="text" name = "batch_action_skip_appeal" value="0"/></label><br/>
+<label>batch_action_skip_review <input type="text" name = "batch_action_skip_review" value="0"/></label><br/>
+<label>lang (can be eng or fra)<input type="text" name = "lang" value="eng"/></label><br/>
+<br/>
+<input type="submit" value="Submit" /><br/>
+
+</form>
+</body>
+</html>
+<?php
+}
