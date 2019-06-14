@@ -1,0 +1,777 @@
+<?php
+
+class wcfb_sf_class extends restservice{
+	//private $initialized = false;
+	//protected $curl_header_members = array();
+	
+	private $client_id;
+	private $client_secret;
+	//private $redirect_url;
+	private $login_url;
+	private $username;
+	private $password;
+	
+	private $access_token = '';
+	private $instance_url = '';
+	
+	protected $sobject_endpoint;
+	protected $query_endpoint;
+	protected $login_endpoint;
+	protected $baseurl = '';
+	
+	function __construct($client_id, $client_secret, $login_url, $username, $password){ //$redirect_url,
+		$this->client_id = $client_id;
+		$this->client_secret = $client_secret;
+		//$this->redirect_url = $redirect_url;
+		//tlog($login_url);
+		$this->login_url = $login_url;
+		$this->username = $username;
+		$this->password = $password;
+		
+		$this->curl_header_members[] = 'Content-Type: application/json';
+		$this->sobject_endpoint = "/services/data/v20.0/sobjects";
+		$this->query_endpoint = "/services/data/v20.0/query";
+		$this->login_endpoint = "/services/oauth2/token";
+		
+		//instead of trying to get access on each page load, only get it when needed. Each function that 
+		//performs an operation should have this in it.
+		//$this->wcfb_sf_get_access(); //set up sf access token and instance url and base url
+		
+		$this->initialized = true;
+		//tlog_debug('wcfb_sf_class constructor called');
+	}
+	
+	private function is_sf_session_fresh(){
+		global $sf_expiration_time;
+
+		if ( ! isset( $_SESSION['wcfb_sf_last_activity'] ) ){
+			tlog_debug( 'is_sf_session_fresh: wcfb_sf_last_activity not set.');
+			return false;
+		}
+		
+		if (! $_SESSION['wcfb_sf_last_activity'] ){
+			tlog_debug( 'is_sf_session_fresh: wcfb_sf_last_activity is false.');
+			return false;
+		}
+		
+		$current_time = time();
+		$time_since_last_activity = $current_time - $_SESSION['wcfb_sf_last_activity'];
+		
+		if ( $time_since_last_activity > $sf_expiration_time ){
+			tlog_debug( 'is_sf_session_fresh: wcfb_sf_last_activity has expired.');
+			return false;
+		}
+		
+		return true;
+	}
+
+	private function wcfb_sf_get_access(){
+		global $wcfb_deactivate_salesforce, $sf_expiration_time; //1800 seconds or 30 minutes
+
+		if ( $wcfb_deactivate_salesforce ) {
+			tlog( 'wcfb_sf_get_access: salesforce is deactivated.');
+			return false;
+		}
+		
+		$freshness = $this->is_sf_session_fresh();
+		if ( $freshness ) {
+			$access_exists = $this->check_access_and_token_access();
+			if ( $access_exists ) {
+				tlog_debug( 'wcfb_sf_get_access: we have access from class construct access_token: [' . $this->access_token . '] and instance_url: [' . $this->instance_url . ']');
+				return true;
+			} elseif ( $_SESSION['wcfb_sf_access_token'] && $_SESSION['wcfb_sf_instance_url'] && $_SESSION['wcfb_sf_last_activity'] ) {
+				$this->access_token = $_SESSION['wcfb_sf_access_token'];
+				$this->instance_url = $_SESSION['wcfb_sf_instance_url'];
+				$this->baseurl = $this->instance_url . $this->sobject_endpoint;
+				$this->add_access_token_to_header();
+				tlog_debug( 'wcfb_sf_get_access: we have access from session. access_token: [' . $this->access_token . '] and instance_url: [' . $this->instance_url . ']');
+				return true;
+			} else {
+				//continue on below with key generation
+			}
+		} else {
+			tlog_debug( 'wcfb_sf_get_access: wcfb_sf_last_activity has expired');
+		    $_SESSION['wcfb_sf_access_token'] = false;
+		    $_SESSION['wcfb_sf_instance_url'] = false;
+			//continue on below with key generation
+		}
+		
+		$json_response = $this->create_salesforce_access_token();
+		
+		if (! $json_response ){
+			return false;
+		}
+		
+		$response = json_decode($json_response, true);
+		//tlog_debug( 'wcfb_sf_get_access: response (1) ' . print_r($response, true) );
+		
+		$this->access_token = $response['access_token'];
+		$this->instance_url = $response['instance_url'];
+		
+		if (! ( $this->check_access_and_token_access() ) ){
+			tlog_debug('wcfb_sf_get_access: check_access_and_token_access failure');
+			return false;	
+		}
+		
+		$this->baseurl = $this->instance_url . $this->sobject_endpoint;
+		$this->add_access_token_to_header();
+		
+		$_SESSION['wcfb_sf_access_token'] = $this->access_token;
+		$_SESSION['wcfb_sf_instance_url'] = $this->instance_url;
+		$_SESSION['wcfb_sf_last_activity'] = time(); // update last activity time stamp
+		
+		return true;
+	}
+	
+	private function create_salesforce_access_token(){
+		
+		tlog('wcfb_sf_get_access: attempting to create a new Salesforce SESSION');
+		
+		$error_response = '';
+		
+		$token_url = $this->login_url . $this->login_endpoint;
+	
+	    $params = 'grant_type=password' .
+	        '&client_id=' . $this->client_id .
+	    	'&client_secret=' . $this->client_secret .
+	    	'&username=' . urlencode($this->username) .
+	    	'&password=' . urlencode($this->password);
+		
+		$curl = curl_init($token_url);
+		curl_setopt($curl, CURLOPT_HEADER, false);
+		curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($curl, CURLOPT_POST, true);
+		curl_setopt($curl, CURLOPT_POSTFIELDS, $params);
+
+		curl_setopt($curl, CURLOPT_CONNECTTIMEOUT ,5); 
+		curl_setopt($curl, CURLOPT_TIMEOUT, 5); //timeout in seconds
+		
+		
+		$json_response = curl_exec($curl);
+		
+		$status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+		
+		if ( $status != 200 ) {
+			$error_response .= "Error: call to token URL $token_url failed with status $status, response $json_response, curl_error " . curl_error($curl) . ", curl_errno " . curl_errno($curl);
+			curl_close($curl);
+			tlog( $error_response );
+		    //die( $error_response );
+			
+			return false;
+		} else {
+			curl_close($curl);
+			return $json_response;
+		}
+	}
+	
+	private function add_access_token_to_header(){
+		//$curl_header_members = array();
+		$header_key = 'Authorization: OAuth';
+		//tlog_debug( 'wcfb_sf_get_access: curl_header_members (1) ' . print_r($this->curl_header_members, true) );
+		$this->curl_header_members = wcfb_remove_item_from_array_with_value( $this->curl_header_members, $header_key );
+		$this->curl_header_members[] = $header_key . ' ' . $this->access_token;
+		//tlog_debug( 'wcfb_sf_get_access: curl_header_members (2) ' . print_r($this->curl_header_members, true) );
+	}
+	
+	protected function check_result_for_bogeys( $result ){
+		//Raw Result for CURL: [{"message":"Session expired or invalid","errorCode":"INVALID_SESSION_ID"}]
+		$sf_session_key_invalid = strpos( $result, 'INVALID_SESSION_ID' );
+		if( $sf_session_key_invalid !== false ){
+			tlog( 'handle_curl_error: Salesforce session expired or invalid. Raw Result for CURL: ' . print_r( $result, true ) );
+			$this->access_token = $_SESSION['wcfb_sf_access_token'] = '';
+			$this->instance_url = $_SESSION['wcfb_sf_instance_url'] = '';
+			$this->wcfb_sf_get_access();
+			
+			return false;
+		}
+
+		return true; //we aren't checking anything in the parent class
+	}
+		
+	protected function handle_curl_error( $errresult, $result ){
+		tlog( $errresult );
+		tlog( 'Raw Result for CURL: ' . print_r($result, true) );
+	}
+	
+	
+	private function check_access_and_token_access(){
+		if (!isset($this->access_token) || $this->access_token == "") {
+			$error_response = "check_access_and_token_access: access token not set";
+		    tlog( $error_response );
+			return false;
+		}
+		
+		if (!isset($this->instance_url) || $this->instance_url == "") {
+			$error_response = "check_access_and_token_access: instance URL not set";
+		    tlog( $error_response );
+			return false;
+		}
+		return true;
+	}
+	
+	private function get_json_response_from_query( $query ){
+		$has_access = $this->wcfb_sf_get_access();
+		if ( ! $has_access ) {
+			tlog( 'wcfb_sf_get_access: could not gain access to salesforce api' );
+			return false;		
+		}
+			
+	    $url = $this->instance_url . $this->query_endpoint . "?q=" . urlencode($query);
+
+	    $curl = curl_init($url);
+	    curl_setopt($curl, CURLOPT_HEADER, false);
+	    curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+	    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+	    curl_setopt($curl, CURLOPT_HTTPHEADER, $this->curl_header_members );
+		
+
+	    $json_response = curl_exec($curl);
+	    
+		if ( $json_response === false ){
+			$errresult = 'Curl Operation returned an error (error code [' . curl_errno ($curl) . ']): ' . curl_error($curl) . ' url: ' . $url;
+			tlog( 'get_json_response_from_query returned false: ' . $errresult );
+		}
+		
+		$this->check_result_for_bogeys( $json_response );
+		
+		curl_close($curl);
+		
+	    return $json_response;
+	}	
+	
+	
+	function wcfb_sf_describe( $object_name ){
+		$has_access = $this->wcfb_sf_get_access();
+		if ( ! $has_access ) {
+			tlog( 'wcfb_sf_get_access: could not gain access to salesforce api' );
+			return false;		
+		}
+		///sobjects/Account/describe/
+		//$object_name . '/describe'
+		
+		//tlog_debug( "wcfb_sf_describe called" );
+		
+		if (! $object_name ){
+			tlog('wcfb_sf_describe: A $object_name is missing.');
+			return false;
+		}
+	
+		$json_result_sf_get_describe = $this->getbyid( $object_name , 'describe' );
+		//tlog_debug( 'wcfb_sf_describe: $json_result_sf_get_describe: ' . $json_result_sf_get_describe );
+		
+		if ( ! $json_result_sf_get_describe === false ){
+			//tlog_debug('wcfb_sf_describe: A $json_result_sf_get_describe returned success.');
+			return json_decode( $json_result_sf_get_describe );
+		} else {
+			tlog('wcfb_sf_describe: A $json_result_sf_get_describe returned bitwise false.');
+			return false;
+		}
+		return false;
+	}
+	
+	public function wcfb_sf_get_all_customer_data() {
+	    $query = "
+	    Select 
+		    Id, IsDeleted, MasterRecordId, Name, Type, RecordTypeId, ParentId, 
+		    BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, 
+		    ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry, 
+		    Phone, Fax, AccountNumber, Website, Industry, AnnualRevenue, NumberOfEmployees, 
+		    Description, Rating, OwnerId, CreatedDate, CreatedById, LastModifiedDate, LastModifiedById, SystemModstamp, LastActivityDate, 
+		    Number_of_Active_Zuora_Payments__c, Person_Full_Name__c, Annual_Income__c, Birthdate__c, Box_Link__c, Children_Notes__c, Contact_Type__c, Description__c, 
+		    Do_Not_Call__c, Do_Not_Calls_Email_Bounced__c, Do_Not_Contact__c, Email__c, Employer_Name__c, Engagement_Factor__c, Engagement_Frequency__c, 
+		    FirstName__c, Gender__c, Has_Opted_Out_Of_Email__c, LastName__c, Lead_Source__c, Level_of_Education__c, Mobile_Phone__c, Occupation__c, 
+		    October_2015_Special_Prayers__c, Office_Phone__c, Phase__c, Phone__c, Recent_Testimonial__c, Relationship_Type__c, SalesForce_Purchases__c, 
+		    Salutation__c, School_University__c, Science_Project_Participant__c, Spouse_Name__c, Status__c, TMW_Duration__c, Title__c,  
+		    Zuora__Active__c, Zuora__CustomerPriority__c, Zuora__NumberofLocations__c, Zuora__SLAExpirationDate__c, Zuora__SLASerialNumber__c, Zuora__SLA__c, 
+		    Zuora__UpsellOpportunity__c, Main_contact__c, Date_Created_Legacy__c, Infusionsoft_Purchases__c, NetSuite_Purchases__c, Total_Legacy_Purchases__c, 
+		    Customer_Account_Type__c, Legacy_Parent_Customer_ID__c, box__FolderID__c, box__RelatedLeadId__c, Record_Count__c, Fusebill2014__Fusebill_Id__c, Primary_Contact_Id__c,
+		    
+		    (Select 
+		    	Id, OwnerId, IsDeleted, Name, CreatedDate, CreatedById, LastModifiedDate, LastModifiedById, SystemModstamp, LastActivityDate, Contact__c, Role__c, Default__c,
+		    	Purchaser_has_Profile_Access__c, Account__c, Gifted__c 
+		    FROM 
+		    	Household_Contacts__r ),
+		    	
+		    (Select 
+		    	Id, IsDeleted, Name, CreatedDate, CreatedById, LastModifiedDate, LastModifiedById, SystemModstamp, 
+		    	Fusebill2014__Account__c, Fusebill2014__Edit__c, Fusebill2014__FusebillData_Id__c, Fusebill2014__Fusebill_Activated_Timestamp__c, Fusebill2014__Fusebill_Amount__c, 
+		    	Fusebill2014__Fusebill_Created_Timestamp__c, Fusebill2014__Fusebill_Customer_Id__c, Fusebill2014__Fusebill_Deferred_Revenue__c, Fusebill2014__Fusebill_Frequency__c, 
+		    	Fusebill2014__Fusebill_Is_Included__c, Fusebill2014__Fusebill_Is_Tracking_Items__c, Fusebill2014__Fusebill_Monthly_Recurring_Revenue__c, 
+		    	Fusebill2014__Fusebill_Next_Period_Start_Date__c, Fusebill2014__Fusebill_One_Time_Revenue__c, Fusebill2014__Fusebill_Plan_Code__c, 
+		    	Fusebill2014__Fusebill_Plan_Description__c, Fusebill2014__Fusebill_Plan_Name__c, Fusebill2014__Fusebill_Plan_Reference__c, Fusebill2014__Fusebill_Product_Description__c, 
+		    	Fusebill2014__Fusebill_Product_Name__c, Fusebill2014__Fusebill_Product_Override__c, Fusebill2014__Fusebill_Product_Price_Override__c, 
+		    	Fusebill2014__Fusebill_Provisioned_Timestamp__c, Fusebill2014__Fusebill_Quantity__c, Fusebill2014__Fusebill_Reference__c, Fusebill2014__Fusebill_Remaining_Interval__c, 
+		    	Fusebill2014__Fusebill_Scheduled_Activation_Timestamp__c, Fusebill2014__Fusebill_Start_Date__c, Fusebill2014__Fusebill_Status__c, 
+		    	Fusebill2014__Fusebill_Subscription_Id__c, Fusebill2014__Fusebill_Unit_Price__c, Fusebill2014__Opportunity__c, Purchaser_Contact__c, 
+		    	Gift_Contact__c, Household_Contact__c, Service_Plan_History__c 
+		    FROM 
+		    	Fusebill2014__Subscriptions__r ),
+		    	
+		    (Select 
+		    	Id, IsDeleted, Name, CreatedDate, CreatedById, LastModifiedDate, LastModifiedById, SystemModstamp, 
+		    	LastActivityDate, Fusebill2014__Subscription__c, 
+		    	Fusebill2014__Account__c, Fusebill2014__Edit__c, Fusebill2014__FusebillData_Id__c, Fusebill2014__Fusebill_Amount__c, Fusebill2014__Fusebill_Deferred_Revenue__c, 
+		    	Fusebill2014__Fusebill_Frequency__c, Fusebill2014__Fusebill_Is_Included__c, Fusebill2014__Fusebill_Is_Recurring__c, Fusebill2014__Fusebill_Is_Tracking_Items__c, 
+		    	Fusebill2014__Fusebill_Monthly_Recurring_Revenue__c, Fusebill2014__Fusebill_One_Time_Revenue__c, Fusebill2014__Fusebill_Plan_Description__c, Fusebill2014__Fusebill_Plan_Name__c, 
+		    	Fusebill2014__Fusebill_Product_Override__c, Fusebill2014__Fusebill_Product_Price_Override__c, Fusebill2014__Fusebill_Quantity__c, Fusebill2014__Fusebill_Start_Date__c, 
+		    	Fusebill2014__Fusebill_Subscription_Id__c, Fusebill2014__Fusebill_Subscription_Status__c, Fusebill2014__Fusebill_Unit_Price__c, Fusebill2014__Opportunity__c, 
+		    	Fusebill2014__Source_Subscription__c, Household_Contact__c, Purchaser_Contact__c, Recipient_Contact__c 
+		    FROM 
+		    	Fusebill2014__Subscription_Products__r )  
+	  	
+	  	FROM Account LIMIT 10";
+	    
+	    $json_response = $this->get_json_response_from_query($query);
+	
+	    return $json_response;
+	}
+	
+	protected function wcfb_get_household_contacts( $fusebill_Id ) {
+		$fusebill_Id = intval( $fusebill_Id ); //sanitization
+			
+	    $query = "
+	    Select 
+		    Id, IsDeleted, MasterRecordId, Name, Type, RecordTypeId, ParentId, 
+		    BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, 
+		    Phone, Fax, AccountNumber, Website, Industry, AnnualRevenue, NumberOfEmployees, 
+		    Description, Rating, OwnerId, CreatedDate, CreatedById, LastModifiedDate, LastModifiedById, SystemModstamp, LastActivityDate,
+		    Person_Full_Name__c, Email__c, FirstName__c, LastName__c, Fusebill2014__Fusebill_Id__c, Primary_Contact_Id__c,
+	
+		    (Select 
+		    	Id, OwnerId, IsDeleted, Name, CreatedDate, CreatedById, LastModifiedDate, LastModifiedById, SystemModstamp, LastActivityDate, Contact__c, Role__c, Default__c,
+		    	Purchaser_has_Profile_Access__c, Account__c, Gifted__c, Contact__r.AccountId, Contact__r.Account_Type__c, 
+				Contact__r.Age__c, 
+				Contact__r.Annual_Income__c, 
+				Contact__r.Birthdate, 
+				Contact__r.Contact_Type__c, 
+				Contact__r.CreatedDate, 
+				Contact__r.Email, 
+				Contact__r.FirstName, 
+				Contact__r.Gender__c,
+				Contact__r.Id, 
+				Contact__r.LastActivityDate, 
+				Contact__r.LastName,
+				Contact__r.Level_of_Education__c, 
+				Contact__r.MailingCity, 
+				Contact__r.MailingCountry, 
+				Contact__r.MailingPostalCode, 
+				Contact__r.MailingState, 
+				Contact__r.MailingStreet, 
+				Contact__r.Occupation__c, 
+				Contact__r.Phone
+	
+		    FROM 
+		    	Household_Contacts__r )
+		
+	  	FROM Account ";
+	  	
+	  	if ($fusebill_Id){
+	  		$query .= " WHERE Fusebill2014__Fusebill_Id__c = '" . $fusebill_Id . "' ";
+		}
+	  			
+	  		
+	    $json_response = $this->get_json_response_from_query($query);
+	
+	    return $json_response;
+	}
+	
+	public function wcfb_sfid_from_fbid( $fusebill_Id ) {
+		$fusebill_Id = intval( $fusebill_Id ); //sanitization
+		
+		if (! $fusebill_Id){
+			tlog( 'wcfb_sfid_from_fbid $fusebill_Id is invalid.' );
+			return false;
+		}
+		
+		//AccountNumber
+		//Fusebill2014__Fusebill_Id__c
+		
+	    $query = "
+	    Select
+	    	Id
+	  	FROM 
+	  		Account 
+	  	WHERE 
+	  		Fusebill2014__Fusebill_Id__c = '" . $fusebill_Id . "' ";
+	  	
+	    $json_response = $this->get_json_response_from_query($query);
+		$json_response_decoded = json_decode( $json_response );
+		
+		$sfid = $json_response_decoded->records[0]->Id;
+		
+		
+		
+		if ($sfid){
+			return $sfid;
+		} else {
+			tlog_debug( 'wcfb_sfid_from_fbid: $sfid was false. $json_response_decoded: ' . print_r( $json_response_decoded, true ) );
+			return false;
+		}
+	}
+	
+	public function wcfb_Primary_Contact_Id_from_fbid( $fusebill_Id ) {
+		$fusebill_Id = intval( $fusebill_Id ); //sanitization
+	
+		//$Primary_Contact_Id
+		
+	    $query = "
+	    Select
+	    	Primary_Contact_Id__c
+	  	FROM 
+	  		Account 
+	  	WHERE 
+	  		Fusebill2014__Fusebill_Id__c = '" . $fusebill_Id . "' ";
+	  	
+	    $json_response = $this->get_json_response_from_query($query);
+		$json_response_decoded = json_decode( $json_response );
+		
+		$Primary_Contact_Id = $json_response_decoded->records[0]->Primary_Contact_Id__c;
+		
+		//tlog_debug( 'wcfb_Primary_Contact_Id_from_fbid $Primary_Contact_Id: ' . $Primary_Contact_Id );
+		
+		if ($Primary_Contact_Id){
+			return $Primary_Contact_Id;
+		} else {
+			return false;
+		}
+	}
+	
+			
+	
+	public function wcfb_search_for_existing_contact( $firstname, $lastName, $email ) {
+		//sanitization
+		$firstname = esc_sql( sanitize_text_field( $firstname ) );
+		$lastName = esc_sql( sanitize_text_field( $lastName ) );
+		$email = esc_sql( sanitize_text_field( $email ) );
+		
+		if( !$firstname || !$lastName || !$email ){
+			tlog( 'wcfb_search_for_existing_contact: invalid data: ' . ' firstname: ' . $firstname . ' lastName: ' . $lastName . ' email: ' . $email );
+		}
+		
+		
+	    $query = "
+	    Select
+	    	Id, FirstName, LastName, Email
+	  	FROM 
+	  		Contact
+	  	WHERE 
+	  		FirstName = '" . $firstname . "' 
+	  	AND
+	  		LastName = '" . $lastName . "'
+	  	AND 	
+	  		Email = '" . $email . "'
+	  		
+	  		";
+	  	
+	    $json_response = $this->get_json_response_from_query($query);
+		$json_response_decoded = json_decode( $json_response );
+		
+		if( isset( $json_response_decoded->records[0]->Id ) ){
+			$sfid = $json_response_decoded->records[0]->Id;
+		} else {
+			tlog_debug( 'wcfb_search_for_existing_contact: no contact found.');
+			return false;
+		}
+		
+		
+		//tlog_debug( 'wcfb_search_for_existing_contact $sfid: ' . $sfid );
+		
+		if ($sfid){
+			return $sfid;
+		} else {
+			return false;
+		}
+	}		
+	
+	
+	public function wcfb_get_just_household_contacts( $account_Id, $contact_id ) {
+		$account_Id = esc_sql( $account_Id ); //sanitization
+		$contact_id = esc_sql( $contact_id ); //sanitization
+		
+	    $query = "
+	    Select 
+	    	Id, OwnerId, IsDeleted, Name, CreatedDate, CreatedById, LastModifiedDate, LastModifiedById, SystemModstamp, LastActivityDate, Contact__c, Role__c, 
+	    	Purchaser_has_Profile_Access__c, Account__c, Gifted__c, Age__c, Default__c
+	
+	    FROM 
+	    	Household_Contact__c
+		    ";
+
+	  	if ($account_Id && $contact_id){
+	  		$query .= "WHERE Account__c = '" . $account_Id . "' AND Contact__c = '" . $contact_id . "' ";
+		} else {
+		  	if ($account_Id){
+		  		$query .= " WHERE Account__c = '" . $account_Id . "' ";
+			}
+		  	if ($contact_id){
+		  		$query .= " WHERE Contact__c = '" . $contact_id . "' ";
+			}
+		}
+
+	  		
+	  			
+	  		
+	    $json_response = $this->get_json_response_from_query($query);
+	
+	    return $json_response;
+	}
+		
+	function show_all_Household_Contacts_data(){
+		$json_response = $this->wcfb_get_just_household_contacts();
+		
+		return $json_response;
+		//print_r( json_decode( $json_response ) );
+	}
+	
+	function show_all_customer_data(){
+		$json_response = $this->wcfb_sf_get_all_customer_data();
+		print_r( json_decode( $json_response ) );
+	}
+	
+	function wcfb_show_household_contacts(){
+		$json_response = $this->wcfb_get_household_contacts();
+		print_r( json_decode( $json_response ) );
+	}
+	
+	function wcfb_get_current_sf_contact_data( $fusebill_customer_id ){
+		//tlog_debug( 'wcfb_get_current_sf_contact_data called' );
+
+		if ( $fusebill_customer_id ){
+			//tlog_debug( 'there is fusebill_customer_id' );
+			
+			$sf_response = $this->wcfb_get_a_specific_household( $fusebill_customer_id );
+			//$decoded_sf_response = json_decode( $json_response ); //don't need, already json
+			//echo '$sf_response ' . print_r( $sf_response, true );
+			
+			$contactspointer = $sf_response->records[0]->Household_Contacts__r->records;
+			
+			//echo '$contactspointer ' . print_r( $contactspointer, true );
+			//die();
+			//$decoded_sf_response->Household_Contacts__r->records;
+			//$giftee_collection = array();
+			
+			if ($contactspointer){
+				//tlog( '$contactspointer ' . print_r( $contactspointer, true ) );
+				//tlog_debug( 'contacts in household_contacts object detected ' );
+				return $contactspointer;	
+			} else {
+				tlog('$sf_response has no Household_Contacts__r records for fusebill_id: ' . $fusebill_customer_id);
+			}
+		} else {
+			tlog( 'there is NO fusebill_customer_id' );
+		}
+		
+		return false;
+	}
+
+
+
+
+	function wcfb_get_a_specific_household( $fusebill_id ){
+		//tlog_debug( 'wcfb_get_a_specific_household called' );
+		
+		$json_response = $this->wcfb_get_household_contacts( $fusebill_id );
+		$decoded_sf_response = json_decode( $json_response );
+		
+		//tlog( 'decoded_sf_response ' . print_r($decoded_sf_response, true) );
+		return $decoded_sf_response;
+		/*
+		foreach ( $decoded_sf_response->records as $household ){
+			//print_r( $household );
+			foreach ( $household[0]->Household_Contacts__r as $hcontact ) {
+				print_r( $hcontact );
+			}
+			
+			die();
+		}
+		*/
+	}
+	
+	function wcfb_sf_get_connection_from_account_and_contact($account_Id, $contact_id){
+		//tlog_debug( "wcfb_sf_get_connection_from_account_and_contact called" );
+		$json_result_connection = $this->wcfb_get_just_household_contacts( $account_Id, $contact_id );
+		
+		//tlog_debug( 'json_result_connection fetched' );
+		
+		if ( ! $json_result_connection === false ){
+			$json_result_connection_decoded = json_decode( $json_result_connection );
+			
+			//tlog(  'json_result_connection_decoded: ' . print_r( $json_result_connection_decoded, true ) );
+			
+			if ( $sf_connection_id = $json_result_connection_decoded->records[0]->Id ){
+				//tlog_debug('A sf_connection_id was found: ' . $sf_connection_id);
+				return $sf_connection_id;
+			}
+		} else {
+			tlog('A $json_result_connection returned bitwise false.');
+		}
+		return false;
+	}
+	
+	function wcfb_sf_edit_contact( $contactId, $contactdata ){
+		$has_access = $this->wcfb_sf_get_access();
+		if ( ! $has_access ) {
+			tlog( 'wcfb_sf_get_access: could not gain access to salesforce api' );
+			return false;		
+		}
+		
+		//tlog_debug( "wcfb_sf_edit_contact called" );
+		
+		if (! $contactId ){
+			tlog('A $contactId is missing.');
+			return false;
+		}
+	
+		$json_result_sf_edit_contact = $this->patchbyid('Contact', $contactdata, $contactId );
+		//tlog_debug( '$json_result_sf_edit_contact: ' . $json_result_sf_edit_contact );
+		
+		if ( ! $json_result_sf_edit_contact === false ){
+			tlog('A $json_result_sf_edit_contact returned success.');
+			return true;
+		} else {
+			tlog('A $json_result_sf_edit_contact returned bitwise false. Salesforce always returns this for patches so assuming success.');
+			return true;
+		}
+		return false;
+	}
+	
+	function wcfb_sf_get_contact( $contactId ){
+		$has_access = $this->wcfb_sf_get_access();
+		if ( ! $has_access ) {
+			tlog( 'wcfb_sf_get_access: could not gain access to salesforce api' );
+			return false;		
+		}
+		//tlog_debug( "wcfb_sf_edit_contact called" );
+		
+		if (! $contactId ){
+			tlog('wcfb_sf_get_contact: A $contactId is missing.');
+			return false;
+		}
+	
+		$json_result_sf_get_contact = $this->getbyid('Contact', $contactId );
+		//tlog_debug( 'wcfb_sf_get_contact: $json_result_sf_edit_contact: ' . $json_result_sf_edit_contact );
+		
+		if ( ! $json_result_sf_get_contact === false ){
+			//tlog_debug('wcfb_sf_get_contact: A $json_result_sf_get_contact returned success.');
+			return json_decode( $json_result_sf_get_contact );
+		} else {
+			tlog('wcfb_sf_get_contact: A $json_result_sf_get_contact returned bitwise false.');
+			return false;
+		}
+		return false;
+	}
+        
+        
+	function wcfb_sf_edit_contactconnection( $contactconnectionId, $contactconnection_data ){
+		$has_access = $this->wcfb_sf_get_access();
+		if ( ! $has_access ) {
+			tlog( 'wcfb_sf_get_access: could not gain access to salesforce api' );
+			return false;		
+		}
+		//tlog_debug( "wcfb_sf_edit_contactconnection called" );
+		
+		/* //this is how this data should look
+		$contactconnection_data = array(
+			'Role__c' => $role,
+		);
+		*/
+		
+		//tlog( '$contactconnection_data: ' . print_r( $contactconnection_data, true ) );
+		
+		$json_result_sf_edit_contactconnection = $this->patchbyid('Household_Contact__c', $contactconnection_data, $contactconnectionId );
+		//tlog( '$json_result_sf_edit_contactconnection: ' . $json_result_sf_edit_contactconnection );
+		
+		if ( ! $json_result_sf_edit_contactconnection === false ){
+			tlog('A $json_result_sf_edit_contact returned success.');
+			return true;		
+		} else {
+			tlog('A $json_result_sf_edit_contactconnection returned bitwise false.');
+		}
+		return false;
+	}
+	
+
+	
+	function wcfb_sf_create_contact( $parentAccountId, $contactdata, $role ){
+		$has_access = $this->wcfb_sf_get_access();
+		if ( ! $has_access ) {
+			tlog( 'wcfb_sf_get_access: could not gain access to salesforce api' );
+			return false;		
+		}
+		
+		//tlog_debug( "wcfb_sf_create_contact called" );
+		$sf_contact_id = '';
+		
+		/////////////We look for an existing contact to connect to ////////////////
+		$wcfb_search_for_existing_contact_result = $this->wcfb_search_for_existing_contact( $contactdata['FirstName'], $contactdata['LastName'], $contactdata['Email'] );
+		if ( $wcfb_search_for_existing_contact_result ){
+			tlog( 'wcfb_sf_create_contact: wcfb_search_for_existing_contact_result returned a salesforce id. Existing contact being connected: ' . $wcfb_search_for_existing_contact_result );
+			
+			if( $this->wcfb_sf_connect_contact_to_account($parentAccountId, $wcfb_search_for_existing_contact_result, $role) ){
+				return $wcfb_search_for_existing_contact_result;
+			} else {
+				tlog('wcfb_sf_create_contact: Unable to connect EXISTING contact to account in salesforce');
+				return false;
+			}
+		}
+		////////////////////////////////////////////////////////////////////////////
+		
+		
+		$json_result_sf_create_contact = $this->create('Contact', $contactdata );
+		//tlog_debug( 'json_result_sf_create_contact: ' . $json_result_sf_create_contact );
+		
+		if ( $json_result_sf_create_contact ){
+			$json_result_sf_create_contact_decoded = json_decode( $json_result_sf_create_contact );
+			
+			if ( $sf_contact_id = $json_result_sf_create_contact_decoded->id ){
+	
+				if( $this->wcfb_sf_connect_contact_to_account($parentAccountId, $sf_contact_id, $role) ){
+					return $sf_contact_id;
+				} else {
+					tlog('Unable to connect contact to account in salesforce');
+				}
+			} else {
+				tlog('A sf_contact_id was not found in returned value');
+			}
+		} else {
+			tlog('Unable to create a contact');
+		}
+		return false;
+	}
+	
+	function wcfb_sf_connect_contact_to_account($parentAccountId, $sf_contact_id, $role){
+		$has_access = $this->wcfb_sf_get_access();
+		if ( ! $has_access ) {
+			tlog( 'wcfb_sf_get_access: could not gain access to salesforce api' );
+			return false;		
+		}
+		
+		$contactconnection_data = array(
+			'Contact__c' => $sf_contact_id,
+			'Account__c' => $parentAccountId,
+			'Role__c' => $role,
+		);
+
+		//tlog( 'contactconnection_data: ' . print_r( $contactconnection_data, true ) );
+		
+		$json_result_sf_create_contactconnection = $this->create('Household_Contact__c', $contactconnection_data ); //create a contact
+		
+		if( $json_result_sf_create_contactconnection ){
+			$json_result_sf_create_contactconnection_decoded = json_decode( $json_result_sf_create_contactconnection );
+			
+			//tlog( 'json_result_sf_create_contactconnection_decoded: ' . print_r( $json_result_sf_create_contactconnection_decoded, true ) );
+
+			//$json_result_updated_account = $this->getbyid('Account', '0015B000002PpiKQAS');
+			return true;
+		}
+		return false;
+	}
+}
+
+
+
+
+
+
+
