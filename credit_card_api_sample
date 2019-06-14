@@ -1,0 +1,473 @@
+<?php
+
+
+function wcfb_credit_card_form( $cardee, $settings ){
+	//there is a dependancy on wcfb.js and it rewrites the submit button using progressive enhancement
+
+        // jQuery Payment script: https://github.com/stripe/jquery.payment
+        wp_enqueue_script('wcfb-jquery-payment', plugins_url( '/js/jquery-payment/jquery.payment.min.js' , __FILE__ ), array('jquery'), '1.4.2', true);
+        wp_enqueue_script('wcfb-credit-card-form', plugins_url( '/js/jquery-payment/credit-card-form.js' , __FILE__ ), array( 'jquery', 'wcfb-jquery-payment' ));
+    
+        
+        // jQuery validation script
+        wp_enqueue_script('wcfb_jquery_validate_lib', plugins_url( '/js/form-validation/jquery-validate/jquery.validate.min.js' , __FILE__ ), array('jquery'), '1.15.0', true);
+        wp_enqueue_script('wcfb_masked_input_plugin', plugins_url( '/js/form-validation/masked-input-plugin/jquery.maskedinput.min.js' , __FILE__ ), array('jquery'), '1.4.1', true);
+        wp_enqueue_script('wcfb_form_valication', plugins_url( '/js/form-validation/script.js' , __FILE__ ), array('jquery'), '1.0.0', true);
+        
+        
+	ob_start();
+
+?>
+<style>
+	#credit_card_form fieldset div {
+		padding:5px;
+	}
+	
+</style>
+    <form id='credit_card_form' action="<?php echo $settings['fb_tr_submit_url_html']; ?>" method="post">
+        
+        <input id="AjaxUrl" name="AjaxUrl" type='hidden' value='<?php echo $settings['fb_tr_submit_url_ajax']; ?>' />
+        
+        <fieldset style='display: none;'>
+            <div>
+                <label for="CustomerId">Customer Id</label>
+                <input autofocus="autofocus" id="CustomerId" name="CustomerId" type="hidden" value="<?php echo $cardee['fusebill_customer_id']; ?>" />
+            </div>
+            
+            <div>
+                <label for="PublicApiKey">Public Api Key</label>
+                <input id="PublicApiKey" name="PublicApiKey" type="hidden" value="<?php echo $settings['fb_tr_public_api_key']; ?>" />
+            </div>
+            
+            <div>
+                <label for="SuccessUri">Success Uri</label>
+                <input id="SuccessUri" name="SuccessUri" type="hidden" value="<?php echo $settings['fb_tr_success_url']; ?>" />
+            </div>
+            
+            <div>
+                <label for="FailUri">Fail Uri</label>
+                <input id="FailUri" name="FailUri" type="hidden" value="<?php echo $settings['fb_tr_fail_url']; ?>" />
+            </div>
+        </fieldset>
+
+        <br />
+
+        <fieldset class="wcfb-cc-form-cc-data">
+            <div class="form-group">
+                <label for="CardNumber" class="control-label">Card number <span class="required">*</span> &nbsp; <small class="text-muted">[<span class="cc-brand"></span>]</small></label>
+                <input id="CardNumber"  type="tel" class="CardNumber" name="CardNumber" type="text"  maxlength="20" autocomplete="off"  placeholder="â€¢â€¢â€¢â€¢ â€¢â€¢â€¢â€¢ â€¢â€¢â€¢â€¢ â€¢â€¢â€¢â€¢" value="" required/>
+            </div>
+                
+            <div class="form-group">
+                <label for="FirstName">First name <span class="required">*</span></label>
+                <input id="FirstName" name="FirstName" type="text" value="<?php echo $cardee['first_name']; ?>" />
+            </div>
+                  
+            <div class="form-group">
+                <label for="LastName">Last name <span class="required">*</span></label>
+                <input id="LastName" name="LastName" type="text" value="<?php echo $cardee['last_name']; ?>" />
+            </div>
+            
+            <div class="form-group">
+              <label for="Expiration" class="control-label">Expiry (MM/YY) <span class="required">*</span></label>
+              <input id="Expiration" type="tel" class="Expiration" name="Expiration" autocomplete="off" placeholder="â€¢â€¢ / â€¢â€¢" value="" required />
+            </div>
+            
+                    <div style="display:none;">
+                        <label for="ExpirationMonth">Expiry month</label>
+                        <input id="ExpirationMonth" name="ExpirationMonth" type="text" value="" required/>
+                    </div>
+                    <div style="display:none;">
+                        <label for="ExpirationYear">Expiry year</label>
+                        <input id="ExpirationYear" name="ExpirationYear" type="text" value="" required/>
+                    </div>
+
+            <div class="form-group">
+              <label for="Cvv" class="control-label">CVV Code <span class="required">*</span></label>
+              <input id="Cvv" type="tel" class="Cvv" name="Cvv" autocomplete="off" placeholder="â€¢â€¢â€¢" required>
+            </div>
+        </fieldset>
+        
+
+        <fieldset class="wcfb-cc-form-address-data">
+            <div class="form-group">
+                <label for="Address1">Address 1 <span class="required">*</span></label>
+                <input id="Address1" name="Address1" type="text" value="<?php echo $cardee['billing_address']['address_1']; ?>" required />
+            </div>
+                
+            <div class="form-group">
+                <label for="Address2">Address 2</label>
+                <input id="Address2" name="Address2" type="text" value="<?php echo $cardee['billing_address']['address_2']; ?>" />
+            </div>
+            
+            <div class="form-group">
+                <label for="City">City <span class="required">*</span></label>
+                <input id="City" name="City" type="text" value="<?php echo $cardee['billing_address']['city']; ?>" required />
+            </div>
+            
+            <div class="form-group">
+                <label for="CountryId">Country <span class="required">*</span></label>
+                <input id="CountryId" name="CountryId" type="text" value="<?php echo $cardee['billing_address']['country']; ?>" required />
+            </div>
+                
+            <div class="form-group">
+                <label for="StateId">State</label>
+                <input id="StateId" name="StateId" type="text" value="<?php echo $cardee['billing_address']['state']; ?>" />
+            </div>
+            
+            <div class="form-group">
+                <label for="PostalZip">Postal / Zip code</label>
+                <input id="PostalZip" name="PostalZip" type="text" value="<?php echo $cardee['billing_address']['postcode']; ?>" />
+            </div>
+        </fieldset>
+        <div class='clear'></div>
+        <br/>
+        <input id='credit_card_form_submit_button' type="submit"  value="Submit Card" />
+        
+    </form>
+<?php
+
+	$generated_form = ob_get_clean();
+	return $generated_form;
+}
+
+add_action( 'wp_ajax_wcfb_handle_tr_response', 'wcfb_handle_tr_response' );
+function wcfb_handle_tr_response(){
+	$json_tr_response = $_REQUEST['json_tr_response'];
+
+	if ( $json_tr_response ){
+
+		$ccid = intval( $json_tr_response['id'] );
+		
+		if ( $ccid ){
+			$wcfb_set_credit_card_as_default_result = wcfb_set_credit_card_as_default( $ccid );
+			
+			if ( $wcfb_set_credit_card_as_default_result ){
+				return true;
+			} else {
+				tlog( 'wcfb_handle_tr_response: $wcfb_set_credit_card_as_default_result is false.');
+				return false;
+			}
+		}
+	} else {
+		tlog( 'wcfb_handle_tr_response: json_tr_response is false.');
+		return false;
+	}
+	wp_die();
+}
+
+function wcfb_set_credit_card_as_default( $ccid ){
+	global $my_fb_client;
+	//PaymentMethods/makeDefault?id={id}&type={type}
+	
+	$api_string = 'PaymentMethods/makeDefault?id=' . $ccid . '&type=CreditCard';
+	$fbdata = array( 'id' => $ccid, 'type' => 'CreditCard');
+	
+	$result = $my_fb_client->create( $api_string, $fbdata );
+	$result_decoded = json_decode( $result );
+	
+	if ( isset( $result_decoded->id ) ){
+		tlog( 'wcfb_set_credit_card_as_default: $result_decoded has an id, so we are assuming success' );
+		return true;
+	} else {
+		tlog( 'wcfb_set_credit_card_as_default: $result_decoded has no id, some kind of error happened' );
+		return false;
+	}
+}
+
+add_shortcode( 'wcfb_credit_card_tr', 'wcfb_credit_card_tr' );
+function wcfb_credit_card_tr(){
+	global $wcfb_keys;
+	
+	$woocommerce_myaccount_page_url = get_permalink( get_option('woocommerce_myaccount_page_id') );
+	echo '<p><a href="' . $woocommerce_myaccount_page_url . '">Go Back to Account Page</a></p>';
+	
+	$customer_id = get_current_user_id();
+	if ( ! $customer_id ){
+		$message = 'Please log in to edit your credit card information.';
+		
+		echo('<div class="woocommerce">');
+		wcfb_fake_woocommerce_notice( $message, 'info' );
+		echo('</div>');
+		
+		//tlog_debug( 'wcfb_credit_card_tr: missing customer_id' );
+		return false;
+	}
+	
+	$wc_data = wcfb_get_wc_customer_data_array( $customer_id );
+	if ( ! $wc_data ){
+		tlog( 'wcfb_credit_card_tr: could not get wc_data' );
+		return false;		
+	}
+	
+	$cardee = $wc_data['customer'];
+	$settings = array();
+	
+	$settings['fb_tr_submit_url_html'] = $wcfb_keys['fb_tr_submit_url_html'];
+	$settings['fb_tr_submit_url_ajax'] = $wcfb_keys['fb_tr_submit_url_ajax'];
+	$settings['fb_tr_public_api_key'] = $wcfb_keys['fb_tr_public_api_key'];
+	$settings['fb_tr_success_url'] = $wcfb_keys['fb_tr_success_url'];
+	$settings['fb_tr_fail_url'] = $wcfb_keys['fb_tr_fail_url'];
+	
+	$generated_form = wcfb_credit_card_form( $cardee, $settings );
+        
+	echo $generated_form;
+}
+
+
+add_shortcode( 'wcfb_credit_card_widget', 'wcfb_credit_card_widget' );
+function wcfb_credit_card_widget(){
+	$message = '<h3><i class="fa fa-credit-card"></i> Credit Card</h3>';
+	
+	$customer_id = get_current_user_id();
+	if ( ! $customer_id ){
+		$message .= '<p>Please log in to edit your credit card information.</p>';
+		return $message;
+	}		
+	
+	$fusebill_address_id = get_user_meta ( $customer_id, 'fusebill_address_id', true);
+	if ( ! $fusebill_address_id ){
+		$message .= '<p>Please create a billing address above before you add or edit a credit card.</p>';
+		return $message;
+	}
+	
+	$credit_card_url = get_site_url() . '/credit-card';
+	
+	$wcfb_check_if_customer_has_active_credit_card_result = wcfb_check_if_customer_has_active_credit_card( $customer_id );
+	if ( ! $wcfb_check_if_customer_has_active_credit_card_result ){
+		$message .= '<a href="' . $credit_card_url . '" class="edit">Enter Credit Card</a>';
+		$message .= '<p>You do not have a default credit card set up in our system yet.</p>';
+		return $message;
+	} else {
+                $creditcard  = wcfb_get_masked_active_credit_card( $customer_id );
+		$message .= '<a href="' . $credit_card_url . '" class="edit">Enter Credit Card</a>';
+		$message .= '<p>You have a default credit card ('.$creditcard->maskedCardNumber.') set up in our system.</p>';
+		return $message;		
+	}
+	return $message;
+}
+
+add_action( 'woocommerce_checkout_before_order_review', 'wcfb_check_for_credit_card_before_payment' );
+function wcfb_check_for_credit_card_before_payment(){
+	global $use_rest_for_credit_card;
+	
+	if ( $use_rest_for_credit_card){
+		tlog_debug('wcfb_check_for_credit_card_before_payment: Using REST so turning this off');
+		return false;
+	}
+	
+	$customer_id = get_current_user_id();
+	$user_has_credit_card = wcfb_check_if_customer_has_active_credit_card( $customer_id );
+	
+        $fusebill_customer_address_id = get_user_meta ( $customer_id, 'fusebill_address_id', true);
+
+        
+	if (! $user_has_credit_card ){
+		tlog_debug( 'process_payment: There is no credit card in the payment gateway available.');
+		
+		//we want to hide all of the payment options until they give us a credit card
+		remove_action( 'woocommerce_checkout_order_review', 'woocommerce_checkout_payment', 20 );
+		remove_action( 'woocommerce_checkout_order_review', 'woocommerce_order_review', 10  );
+		
+                if ( ! $fusebill_customer_address_id ){ // if no billing address has been setup
+                    $message = '<p>There is no default credit card in our system. Please set up billing and credit card at <a href="' . wc_get_page_permalink( 'myaccount' ) . '">My Account</a> page first.</p>';
+                } else {
+                    $message = '<p>There is no default credit card in our system. Please <a href="' . get_site_url() . '/credit-card/">enter</a> a credit card.</p>';
+                }
+		
+		echo $message;
+	}	
+
+}
+
+function wcfb_get_customer_creditcards( $customer_id ){
+	global $my_fb_client;
+	
+	$fusebill_customer_id = get_user_meta ( $customer_id, 'fusebill_customer_id', true);
+	
+	if ( ! $fusebill_customer_id ){
+		tlog ( 'wcfb_get_customer_creditcards: $fusebill_customer_id is missing' );
+		return false;
+	} else {
+		try{
+			// /v1/customers/{FusebillId}/CreditCards
+			$fusebill_data_result = $my_fb_client->getbyid( 'customers', $fusebill_customer_id, 'CreditCards' );
+		} catch ( WC_API_Client_Exception $e ) {
+			tlog( 'wcfb_get_customer_creditcards: could not get data: ' . print_r($e, true) );
+			return false;
+		}
+		return json_decode( $fusebill_data_result );
+	}
+	return false;
+}
+
+
+function wcfb_get_masked_active_credit_card( $customer_id ){
+	//$creditcard->maskedCardNumber
+	$wcfb_get_customer_creditcards_result = wcfb_get_customer_creditcards( $customer_id );
+	
+	if ( ! $wcfb_get_customer_creditcards_result ){
+		tlog('wcfb_get_masked_active_credit_card: user has NO creditcards detected from wcfb_get_customer_creditcards');
+		return false;
+	}
+	
+	$userhascreditcards = false;
+	foreach ($wcfb_get_customer_creditcards_result as $creditcard){
+		if ($creditcard->isDefault == true){
+			return $creditcard;
+		} else {
+			$userhascreditcards = true;
+		}
+	}
+	
+	if ( $userhascreditcards ){
+		tlog_debug( 'wcfb_get_masked_active_credit_card: user has credit cards, but none of them is set to default.' . print_r($wcfb_get_customer_creditcards_result,true)  );
+		return false;
+	} else {
+		tlog_debug( 'wcfb_get_last_four_digits_of_active_credit_card: no credit cards found. $wcfb_get_customer_creditcards_result_decoded: ' . print_r($wcfb_get_customer_creditcards_result,true) );
+		return false;
+	}
+	
+	return false;
+}
+
+function wcfb_check_if_customer_has_active_credit_card( $customer_id ){
+
+	$wcfb_get_customer_creditcards_result = wcfb_get_customer_creditcards( $customer_id );
+	
+	if ( ! $wcfb_get_customer_creditcards_result ){
+		tlog('wcfb_check_if_customer_has_active_credit_card: user has NO creditcards detected from wcfb_get_customer_creditcards');
+		return false;
+	}
+	
+	//tlog_debug( 'wcfb_check_if_customer_has_active_credit_card: $wcfb_get_customer_creditcards_result' . print_r($wcfb_get_customer_creditcards_result,true) );
+	
+	//$wcfb_get_customer_creditcards_result_decoded = json_decode( $wcfb_get_customer_creditcards_result );
+	
+	//"id": 44935,
+	//customerId": 86617
+	$userhascreditcards = false;
+	foreach ($wcfb_get_customer_creditcards_result as $creditcard){
+		if ($creditcard->isDefault == true){
+			return true;
+		} else {
+			$userhascreditcards = true;
+		}
+	}
+	
+	if ( $userhascreditcards ){
+		tlog_debug( 'wcfb_check_if_customer_has_active_credit_card: user has credit cards, but none of them is set to default.' . print_r($wcfb_get_customer_creditcards_result,true)  );
+		return false;
+	} else {
+		tlog_debug( 'wcfb_check_if_customer_has_active_credit_card: no credit cards found. $wcfb_get_customer_creditcards_result_decoded: ' . print_r($wcfb_get_customer_creditcards_result,true) );
+		return false;
+	}
+	
+	return false;
+}
+
+
+function wcfb_set_credit_card_payment_method_using_rest( $customer_id ){
+	global $my_fb_client, $my_wc_client;
+
+	$wc_data = $my_wc_client->getbyid( 'customers', $customer_id );
+	
+	if ( !$wc_data ) {
+		tlog( 'set_credit_card_payment_method: $wc_data get customer was not successful' );
+		return false;
+	}
+
+	$ccdata['cardNumber'] = $_POST['wc_fusebill-card-number'];
+	$ccdata['cardNumber'] = preg_replace( "/[^0-9]/", "", $ccdata['cardNumber'] );
+
+	$ccdata['ccv'] = ( int) $_POST['wc_fusebill-card-cvc'];
+	$ccdata['card_expire'] = $_POST['wc_fusebill-card-expiry'];
+
+	$ccdata['expirationMonth'] = substr( $ccdata['card_expire'], 0, 2 ); //get first two characters
+	$ccdata['expirationYear'] = substr( $ccdata['card_expire'], -2 ); //get last two characters
+
+
+	$fusebill_customer_id = get_user_meta ( $customer_id, 'fusebill_customer_id', true);
+	$customercountry = country_converter( $wc_data->customer->billing_address->country );
+	$customerstate = state_converter( $wc_data->customer->billing_address->state );
+
+	$fbdata = array(
+		 "customerId" => $fusebill_customer_id,
+		 "cardNumber" => $ccdata['cardNumber'],
+		 "expirationMonth" => $ccdata['expirationMonth'],
+		 "expirationYear" => $ccdata['expirationYear'],
+		 "cvv" => $ccdata['ccv'],
+		 "firstName" => $wc_data->customer->billing_address->first_name,
+		 "lastName" => $wc_data->customer->billing_address->last_name,
+		 "address1" => $wc_data->customer->billing_address->address_1,
+		 "address2" => $wc_data->customer->billing_address->address_2,
+		 "countryId" => $customercountry, //840 is US. country codes
+		 "stateId" => $customerstate, //18 is Nevada. state codes
+		 "city" => $wc_data->customer->billing_address->city,
+		 "postalZip" => $wc_data->customer->billing_address->postcode,
+		 "isDefault" => true
+	);
+
+    //tlog_debug( 'set_credit_card_payment_method: $fbdata' . print_r( $fbdata, true ) );
+
+	/*
+	customerId	Decimal	This is the customer Id for the customer that this payment method is attached to.
+	cardNumber	String	This is the card number for the card you wish to add.
+	firstName	String	This is the first name associated with the card you wish to add.
+	lastName	String	This is the last name associated with the card you wish to add.
+	expirationMonth	Decimal	Two digits
+	expirationYear	Decimal	Two digits
+	cvv	String	 
+	address1	String	This is the address associated with the card you wish to add. This is required if Address Verification Services is in use.
+	address2	String	This is the address associated with the card you wish to add. This is required if Address Verification Services is in use.
+	countryId	Decimal	This is the ISO 3 Digit Country Code for the country associated with the card you wish to add. This is required if Address Verification Services is in use.
+	stateId	Decimal	This is the reference code for the state. It is not an ISO standard. You can get these codes by performing a GET on the Country and State List.
+	This is required if Address Verification Services is in use.
+	city	String	This is the city associated with the address associated with the card you wish to add. This is required if Address Verification Services is in use.
+	postalZip	String
+	*/
+
+//check to see if there is an existing card
+	$existing_card_fusebill_id = get_user_meta ( $customer_id, 'existing_card_fusebill_id', true);
+
+	if ( $existing_card_fusebill_id ) {
+		tlog('there is an existing credit card fusebill id: ' . $existing_card_fusebill_id);
+		$fbdata['id'] = $existing_card_fusebill_id;
+
+		tlog('Attempting to update creditcard in Fusebill');
+
+		$result = $my_fb_client->updatebyid( 'CreditCards', $fbdata );
+		$result_card = json_decode($result);
+		$existing_card_fusebill_id_returned = $result_card->id;
+
+		if (!$existing_card_fusebill_id_returned){
+			tlog('credit card payment method not successfully added. No id returned');
+			return false; //this process failed
+		}
+
+		update_user_meta ( $customer_id, 'existing_card_fusebill_id', $existing_card_fusebill_id_returned ); //fusebill creates new credit card on edit and retires old
+	} else {
+		tlog('Attempting to create creditcard in Fusebill');
+		$result = $my_fb_client->create( 'CreditCards', $fbdata );
+		$result_card = json_decode($result);
+		$existing_card_fusebill_id_returned = $result_card->id;
+
+		if (!$existing_card_fusebill_id_returned){
+			tlog('credit card payment method not successfully added. No id returned');
+			return false; //this process failed
+		}
+
+		tlog( 'Fusebill returned card ($existing_card_fusebill_id_returned): ' . $existing_card_fusebill_id_returned ); //.  print_r( $result_card, true ) );
+		update_user_meta ( $customer_id, 'existing_card_fusebill_id', $existing_card_fusebill_id_returned );
+	}
+
+	return true;
+}
+
+
+
+
+
+
+
+
