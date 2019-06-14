@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Upload your files</title>
+  <style>
+    .input_button {
+		width:200px;
+		height:60px;
+		font-size:1.5em;
+		border:2px solid blue;
+		float:left;
+		background-color:#FFFFDD;
+	}
+	.input_button input {
+    	width:100%;
+		height:100%;
+    }
+  </style>
+</head>
+<body>
+  <a href='../'>Go back up one level</a>
+  <form enctype="multipart/form-data" action="upload.php" method="post">
+  	<input type="hidden" name="submitted" value="true"></input>
+    <p>Upload your file or URL</p>
+    <div class="input_button"><input type="file" name="uploaded_file"></input></div>
+    <div class="input_button"><input type="inputbox" name="url_file"></input></div>
+    <div class="input_button"><input type="submit" value="Upload"></input></div>
+    <div style="clear:both;"></div>
+  </form>
+
+<div>
+<h3>Messages</h3>
+<p>
+
+<?php
+
+  echo '<p>Max upload size limit: ' . ini_get("upload_max_filesize") . '</p>';
+  echo '<p>Max post limit: ' . ini_get("post_max_size") . '</p>';
+
+  $path = "/home/montgog/Downloads/uploads/";
+
+	if ( !isset( $_POST["submitted"] ) ) {
+		echo "Upload cue is empty.";
+	} else {
+		if ( isset($_FILES['uploaded_file']['error']) && $_FILES['uploaded_file']['error'] != UPLOAD_ERR_NO_FILE) {
+        	if ( $_FILES['uploaded_file']['name'] ) {
+      			echo '<p>Uploaded file name: ' . $_FILES['uploaded_file']['name'] . '</p>';
+
+      			if ( strpos( $_FILES['uploaded_file']['name'], '.php' ) !== false ){
+        			echo 'Illegal file';
+      			} else {
+        			$newpath = $path . basename( $_FILES['uploaded_file']['name']);
+        			if(move_uploaded_file($_FILES['uploaded_file']['tmp_name'], $newpath)) {
+          				echo "The file ".  basename( $_FILES['uploaded_file']['name']) . " has been uploaded.";
+        			} else {
+          				echo "There was an error uploading the file, please try again!";
+       				}
+				}
+    		} else {
+      			echo 'Filename empty.';
+    		}
+        }
+    
+	    if (!empty($_POST['url_file'])) {
+			$url = $_POST['url_file'];
+			if ( strpos( $url, '.php' ) !== false ){
+				echo 'Illegal URL';
+			} else {
+				$newpath = $path . basename( $url );
+				$fpc_result = file_put_contents($newpath, fopen($url, 'r'));
+				if ($fpc_result) {
+					echo "The URL " . $url . " was saved to the server successfully.";
+				} else {
+					echo "Download failed.";
+				}
+			}
+		}
+	}
+
+  echo '<h3>Upload List</h3><ul><li>' . implode("</li><li>", scandir ( $path ) ) . '</li></ul>';
+
+?>
+</p>
+</div>
+
+</body>
+</html>
