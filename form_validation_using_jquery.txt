@@ -1,0 +1,153 @@
+// jQuery Validate
+jQuery(document).ready(function($){
+    var currDate = new Date();
+    $( "#birthdate" ).datepicker({
+        dateFormat: "yy-mm-dd",
+        minDate: new Date(1901, 1 - 1, 1),
+        maxDate: currDate, // for today's date use: currDate or new Date(), or for 9 month from today use: maxDate: "+9m"
+        navigationAsDateFormat: true,
+        changeMonth : true,
+        changeYear : true,
+        yearRange: "1901:"+currDate
+    });
+    
+    $("#recipientForm").validate({
+        debug: false,
+        rules: {
+                firstName: {
+                        required: true,
+                        minlength: 2
+                },
+                lastName: {
+                        required: true,
+                        minlength: 2
+                },
+                relationship: {
+                        required: true,
+                        minlength: 2
+                },
+                email: {
+                        email: true
+                },
+                birthdate: {
+                        required: false,
+                        validDate: true
+                }
+        },
+        messages: {
+                firstName: {
+                        required: "Please enter a first name",
+                        minlength: "The first name must consist of at least 2 characters"
+                },
+                lastName: {
+                        required: "Please enter a last name",
+                        minlength: "The last name must consist of at least 2 characters"
+                },
+                relationship: {
+                        required: "Please enter a relationship",
+                        minlength: "The relationship must consist of at least 2 characters"
+                },
+                email: "Please enter a valid email address",
+                birthdate: {
+                        validDate: "Please enter a valid birthdate"
+                }
+        }
+    });
+    
+    $.validator.addMethod("validDate", function(value, element) {
+        var currYear = new Date().getFullYear();
+        function parseDMY(value) {
+            var date = value.split("-");
+            var y = parseInt(date[0], 10),
+                m = parseInt(date[1], 10),
+                d = parseInt(date[2], 10);
+            //return new Date(y, m - 1, d);
+            return y;
+        }
+
+        if ( $("#birthdate").val() == 'yyyy-mm-dd' || $("#birthdate").val() == '' ) { // when empty string or 'yyyy-mm-dd'. Since birthdate is not required we can return "true"
+            return true;
+        } else if( parseDMY($("#birthdate").val()) > 1900 ) {
+            return parseDMY($("#birthdate").val()) <= currYear;
+        } else {
+            return false;
+        }
+    }, "Please enter a valid date in the format YYYY-MM-DD where the year cannot exceed the current year");
+    
+    
+    //*******( FIELDS MASKING )*******//
+    
+    // Phone number masked input
+    // - on initial page load:
+    var $selectedCountry = $("#giftee_country option:selected").val();
+    phoneNumberMask($selectedCountry);
+    // - on country change:
+    $("#giftee_country").change(function() {
+        $selectedCountry = $("#giftee_country option:selected").val();
+        phoneNumberMask($selectedCountry);
+    });
+    function phoneNumberMask(selectedCountry) {
+        if( selectedCountry === "US" || selectedCountry === "CA"){
+            $("#phone").mask("(999) 999-9999?   x99999");
+        } else {
+            $("#phone").unbind();
+        }
+    }
+    
+    // Birthdate  masked input
+    $("#birthdate").mask("9999-99-99",{placeholder:"yyyy-mm-dd"});
+    
+    
+    
+    
+    // Credit Card Form:
+    
+    $("#credit_card_form").validate({
+        debug: false,
+        rules: {
+                FirstName: {
+                        required: true,
+                        minlength: 2
+                },
+                LastName: {
+                        required: true,
+                        minlength: 2
+                },
+                Address1: {
+                        required: true,
+                        minlength: 2
+                },
+                City: {
+                        required: true,
+                        minlength: 2
+                },
+                CountryId: {
+                        required: true,
+                        minlength: 2
+                }
+        },
+        messages: {
+                FirstName: {
+                        required: "Please enter a first name",
+                        minlength: "The first name must consist of at least 2 characters"
+                },
+                LastName: {
+                        required: "Please enter a last name",
+                        minlength: "The last name must consist of at least 2 characters"
+                },
+                Address1: {
+                        required: "Please enter an address",
+                        minlength: "The address must consist of at least 2 characters"
+                },
+                City: {
+                        required: "Please enter a city",
+                        minlength: "The city name must consist of at least 2 characters"
+                },
+                CountryId: {
+                        required: "Please enter a country",
+                        minlength: "The country name must consist of at least 2 characters"
+                }
+        }
+    });
+    
+});
