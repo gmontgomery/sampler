@@ -1,0 +1,138 @@
+<?php
+
+class fusebill_wc_api_client {
+	private $options;
+	private $baseurl;
+	private $pubkey;
+	private $privkey;
+
+	public $client;
+
+	function __construct($baseurl, $pubkey, $privkey){
+		$this->options = array(
+			'debug'           => false,
+			'return_as_array' => false,
+			'validate_url'    => true,
+			'timeout'         => 10,
+			'ssl_verify'      => true,
+		);
+		
+		//needed for security
+		if ($GLOBALS['debugmode'] == true){
+			$this->options['debug'] = true;
+			$this->options['return_as_array'] = false;
+			$this->options['validate_url'] = false;
+			$this->options['timeout'] = 30;
+			$this->options['ssl_verify'] = false;
+		}
+		
+		$this->baseurl = $baseurl;
+		$this->pubkey = $pubkey;
+		$this->privkey = $privkey;
+		
+		$this->create_client();
+	}
+	
+	function create_client(){
+		try {
+			$this->client = new WC_API_Client( 
+				$this->baseurl, 
+				$this->pubkey, 
+				$this->privkey, 
+				$this->options 
+			);
+		} catch ( WC_API_Client_Exception $e ) {
+			tlog($this->format_error_message($e));
+		}
+	}
+	
+	function format_error_message($e){
+		$errresult = $e->getMessage() . PHP_EOL;
+		$errresult .=  $e->getCode() . PHP_EOL;
+	
+		if ( $e instanceof WC_API_Client_HTTP_Exception ) {
+	
+			$errresult .=  print_r( $e->get_request(), true ) . PHP_EOL;
+			$errresult .=  print_r( $e->get_response(), true ) . PHP_EOL;
+		}
+		return $errresult;
+	}
+	
+	
+	function get_pointer($endpoint){
+		$arrayref = array();
+		
+		$arrayref['coupons'] = $this->client->coupons;
+		$arrayref['customers'] = $arrayref['customer'] = $this->client->customers;
+		$arrayref['orders'] = $this->client->orders;
+		$arrayref['order_notes'] = $this->client->order_notes;
+		$arrayref['order_refunds'] = $this->client->order_refunds;
+		$arrayref['products'] = $this->client->products;
+		$arrayref['reports'] = $this->client->reports;
+		$arrayref['webhooks'] = $this->client->webhooks;
+
+		return $arrayref[$endpoint];
+	}
+	
+	function getbyid($endpoint, $item_id = false){
+		try {
+			$mypointer = $this->get_pointer($endpoint);
+			if ($item_id !==false){
+				return $mypointer->get($item_id);
+			} else {
+				return $mypointer->get();
+			}
+		} catch ( WC_API_Client_Exception $e ) {
+			tlog($this->format_error_message($e));
+		}
+	}
+	
+	function updatebyid($endpoint = false, $item_id = false, $data = false, $subid = false){
+		try {
+			if ($endpoint != false && $item_id !=false && is_array($data)){
+				$mypointer = $this->get_pointer($endpoint);
+				
+				if ($subid !== false){
+					return $mypointer->update($item_id, $subid, $data);
+				} else {
+					return $mypointer->update($item_id, $data);
+				}
+			} else {
+				return false;
+			}
+		} catch ( WC_API_Client_Exception $e ) {
+			tlog($this->format_error_message($e));
+		}
+	}
+	
+	function deletebyid($endpoint, $item_id, $subid = false){
+		try {
+			$mypointer = $this->get_pointer($endpoint);
+			if ($endpoint != false && $item_id !=false){
+				if ($subid !== false){
+					return $mypointer->delete($item_id, $subid);
+				} else {
+					return $mypointer->delete($item_id);
+				}
+			}
+		} catch ( WC_API_Client_Exception $e ) {
+			tlog($this->format_error_message($e));
+		}
+	}
+	
+	function create($endpoint, $data, $subid = false){
+		try {
+			$mypointer = $this->get_pointer($endpoint);
+			
+			if (is_array($data)){
+				if ($subid !== false){
+					return $mypointer->create($subid, $data);
+				} else {
+					return $mypointer->create($data);
+				}
+			}
+		} catch ( WC_API_Client_Exception $e ) {
+			tlog($this->format_error_message($e));
+		}
+	}
+}
